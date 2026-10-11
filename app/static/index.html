@@ -1,0 +1,377 @@
+<!doctype html>
+<title>储能运维值班台</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&family=Saira+Semi+Condensed:wght@600;700&display=swap">
+<style>
+/* 布局：左侧告警队列 · 中间智能体过程时间线 · 右侧处置单（计划、结论、推送） */
+:root {
+  --bg: #eef2f3;
+  --panel: #ffffff;
+  --ink: #15232b;
+  --muted: #5d6d75;
+  --line: #d5dde0;
+  --accent: #0e6f6a;
+  --accent-soft: #dcefed;
+  --main: #0e6f6a;
+  --triage: #3d4fa3;
+  --diag: #8a3f7a;
+  --sev1: #b42318;
+  --sev2: #c2570c;
+  --sev3: #5d6d75;
+  --ok: #1d7a43;
+  --warn-bg: #fff4e5;
+  --code-bg: #f4f7f8;
+  --font-display: "Saira Semi Condensed", "Noto Sans SC", system-ui, sans-serif;
+  --font-body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f171b; --panel: #162228; --ink: #e3ecef; --muted: #93a6ae; --line: #2a3a41;
+    --accent: #4fc2b8; --accent-soft: #173a39; --main: #4fc2b8; --triage: #8e9cf0; --diag: #d68cc6;
+    --sev1: #ff7b6e; --sev2: #f5a35a; --sev3: #93a6ae; --ok: #5fcf8b; --warn-bg: #33261a; --code-bg: #111b20;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f171b; --panel: #162228; --ink: #e3ecef; --muted: #93a6ae; --line: #2a3a41;
+  --accent: #4fc2b8; --accent-soft: #173a39; --main: #4fc2b8; --triage: #8e9cf0; --diag: #d68cc6;
+  --sev1: #ff7b6e; --sev2: #f5a35a; --sev3: #93a6ae; --ok: #5fcf8b; --warn-bg: #33261a; --code-bg: #111b20;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.6; margin: 0; }
+.wrap { padding-inline: 16px; padding-block: 0 32px; max-width: 1480px; margin: 0 auto; }
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 20px; padding-block: 18px 14px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+.brand { font-family: var(--font-display); font-size: 24px; font-weight: 700; letter-spacing: .02em; }
+.brand small { font-family: var(--font-body); font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 10px; letter-spacing: 0; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 12.5px; }
+.meta b { color: var(--ink); font-weight: 500; font-family: var(--font-mono); }
+.chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; font-size: 12px; color: var(--muted); background: var(--panel); }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.chip.offline .dot { background: var(--sev2); }
+
+.grid { display: grid; grid-template-columns: 290px minmax(0, 1fr) minmax(0, 420px); gap: 16px; align-items: start; }
+@media (max-width: 1180px) { .grid { grid-template-columns: 260px minmax(0, 1fr); } .side { grid-column: 1 / -1; } }
+@media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+h2.sec { font-family: var(--font-display); font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+h2.sec span { font-family: var(--font-body); letter-spacing: .04em; }
+
+/* 告警队列 */
+.alarms { display: flex; flex-direction: column; gap: 8px; }
+.alarm { all: unset; cursor: pointer; display: grid; grid-template-columns: 4px 1fr; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.alarm:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.alarm .stripe { background: var(--sev3); }
+.alarm.l1 .stripe { background: var(--sev1); } .alarm.l2 .stripe { background: var(--sev2); }
+.alarm .body { padding: 9px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.alarm .t { font-weight: 500; }
+.alarm .d { font-family: var(--font-mono); font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.alarm .v { font-family: var(--font-mono); font-size: 12.5px; }
+.alarm.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.lvl { font-size: 11.5px; font-weight: 500; }
+.l1 .lvl { color: var(--sev1); } .l2 .lvl { color: var(--sev2); } .l3 .lvl { color: var(--sev3); }
+.opts { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; color: var(--muted); }
+.opts label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.btn { all: unset; cursor: pointer; background: var(--accent); color: var(--panel); font-weight: 500; text-align: center; padding: 8px 14px; border-radius: 6px; }
+.btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.btn[disabled] { opacity: .5; cursor: default; }
+.btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+.legend { display: flex; flex-direction: column; gap: 4px; margin-top: 14px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+/* 时间线 */
+.timeline { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 0; min-height: 420px; }
+@media (min-width: 761px) { .timeline { max-height: calc(100vh - 120px); overflow-y: auto; } }
+.empty { color: var(--muted); padding: 40px 24px; text-align: center; }
+.ev { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; padding: 7px 16px; animation: in .25s ease-out both; }
+@keyframes in { from { opacity: .2; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .ev { animation: none; } }
+.who { font-size: 11.5px; font-weight: 500; padding-top: 2px; white-space: nowrap; }
+.who.main { color: var(--main); } .who.alarm-triage { color: var(--triage); } .who.fault-diagnostician { color: var(--diag); }
+.ev.sub { border-left: 3px solid var(--line); margin-left: 16px; padding-left: 13px; }
+.ev.sub.alarm-triage { border-left-color: var(--triage); } .ev.sub.fault-diagnostician { border-left-color: var(--diag); }
+.thought { color: var(--ink); }
+.call { font-family: var(--font-mono); font-size: 12.5px; }
+.call .fn { color: var(--accent); font-weight: 500; }
+.call .args { color: var(--muted); word-break: break-all; }
+details.res { margin-top: 3px; }
+details.res summary { cursor: pointer; color: var(--muted); font-size: 12px; list-style: none; }
+details.res summary::before { content: "▸ "; } details.res[open] summary::before { content: "▾ "; }
+pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; overflow-x: auto; max-height: 280px; margin: 4px 0 0; white-space: pre; }
+.deleg { background: var(--accent-soft); border-radius: 6px; padding: 6px 10px; }
+.deleg b { font-weight: 500; }
+.guard { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; border-radius: 4px; padding: 2px 8px; border: 1px solid var(--line); }
+.guard.pass { color: var(--ok); } .guard.rewrite, .guard.redact { color: var(--sev2); background: var(--warn-bg); border-color: transparent; }
+.answer-sub { border: 1px dashed var(--line); border-radius: 6px; padding: 8px 10px; }
+.err { color: var(--sev1); }
+.done { color: var(--muted); font-size: 12.5px; font-family: var(--font-mono); }
+
+/* 处置单 */
+.side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+.todos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.todos li { display: grid; grid-template-columns: 18px 1fr; gap: 6px; }
+.todos li.completed { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line); }
+.todos li.in_progress { color: var(--accent); font-weight: 500; }
+.report h3 { font-size: 15px; margin: 14px 0 4px; }
+.report h3:first-child { margin-top: 0; }
+.report p, .report ul, .report ol { margin: 4px 0; }
+.report ul, .report ol { padding-left: 20px; }
+.report blockquote { margin: 10px 0 0; padding: 6px 10px; border-left: 3px solid var(--accent); color: var(--muted); background: var(--code-bg); }
+.report .placeholder, .wecom .placeholder { color: var(--muted); }
+.wecom { font-size: 13px; }
+.wecom .bubble { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; white-space: pre-wrap; word-break: break-word; }
+.wecom .warning { color: var(--sev2); } .wecom .comment { color: var(--muted); } .wecom .info { color: var(--ok); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.note { font-size: 12px; color: var(--muted); }
+.stats { display: flex; gap: 14px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.stats b { color: var(--ink); font-weight: 500; }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">储能运维值班台<small>告警分诊 · 多步诊断 · 处置建议</small></div>
+    <div class="meta" id="meta"></div>
+  </header>
+
+  <div class="grid">
+    <aside>
+      <h2 class="sec"><span>未复归告警</span></h2>
+      <div class="alarms" id="alarms"></div>
+      <div class="opts">
+        <label for="inject"><input type="checkbox" id="inject"> 演示防幻觉：让诊断智能体编一个没有依据的数值，看事实校验拦下它</label>
+        <button class="btn" id="run" type="button">交给智能体处理</button>
+      </div>
+      <div class="legend">
+        <div><i style="background:var(--main)"></i>值班长（主智能体）</div>
+        <div><i style="background:var(--triage)"></i>告警分诊（子智能体）</div>
+        <div><i style="background:var(--diag)"></i>故障诊断（子智能体）</div>
+      </div>
+    </aside>
+
+    <section style="min-width:0">
+      <h2 class="sec"><span>智能体过程</span></h2>
+      <div class="timeline" id="tl"><div class="empty">选一条告警，点「交给智能体处理」，这里会一步步显示推理、工具调用和子智能体委派。</div></div>
+    </section>
+
+    <aside class="side">
+      <div class="card">
+        <h2 class="sec"><span>处置计划</span></h2>
+        <ul class="todos" id="todos"><li><span>·</span><span class="note">运行后显示主智能体的 TODO</span></li></ul>
+        <div class="stats" id="stats" style="margin-top:10px"></div>
+      </div>
+      <div class="card report" id="report"><h2 class="sec"><span>处置报告</span></h2><p class="placeholder">等待智能体给出结论。</p></div>
+      <div class="card wecom">
+        <h2 class="sec"><span>企业微信推送草稿</span></h2>
+        <div id="wecom"><p class="placeholder">智能体生成草稿后显示在这里，值班员确认后才会发送。</p></div>
+        <div class="row" id="pushrow" hidden>
+          <button class="btn ghost" id="push" type="button">确认并发送</button>
+          <span class="note" id="pushnote"></span>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+(() => {
+  const TRACES = window.__DEMO_TRACES__ || null;   // 在线预览：回放预先跑好的事件
+  const META = window.__DEMO_META__ || null;
+  const $ = (id) => document.getElementById(id);
+  const AGENT = { "main": "值班长", "alarm-triage": "告警分诊", "fault-diagnostician": "故障诊断" };
+  const TOOL_CN = {
+    get_alarm_detail: "告警详情", get_alarm_history: "历史告警", get_device_info: "设备台账", list_active_alarms: "全站未复归告警",
+    query_telemetry: "遥测时序", get_cluster_extremes: "簇级单体极值", get_maintenance_records: "检修记录",
+    search_fault_cases: "故障案例检索", get_weather: "气象", read_file: "读取 Skill", draft_wecom_message: "生成推送草稿"
+  };
+  let meta = null, selected = null, runId = null, busy = false;
+
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const stripJson = (t) => t.replace(/```json[\s\S]*?```/g, "").trim();
+  const jsonPart = (t) => (t.match(/```json\s*([\s\S]*?)```/) || [])[1];
+
+  function md(text) {
+    const lines = stripJson(text).split("\n");
+    let html = "", list = null;
+    const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+    const close = () => { if (list) { html += `</${list}>`; list = null; } };
+    for (const raw of lines) {
+      const l = raw.trimEnd();
+      let m;
+      if ((m = l.match(/^#{2,3}\s+(.*)/))) { close(); html += `<h3>${inline(m[1])}</h3>`; }
+      else if ((m = l.match(/^\s*[-*]\s+(.*)/))) { if (list !== "ul") { close(); html += "<ul>"; list = "ul"; } html += `<li>${inline(m[1])}</li>`; }
+      else if ((m = l.match(/^\s*\d+[.、]\s+(.*)/))) { if (list !== "ol") { close(); html += "<ol>"; list = "ol"; } html += `<li>${inline(m[1])}</li>`; }
+      else if ((m = l.match(/^>\s?(.*)/))) { close(); html += `<blockquote>${inline(m[1])}</blockquote>`; }
+      else if (l.trim()) { close(); html += `<p>${inline(l)}</p>`; }
+    }
+    close();
+    return html;
+  }
+
+  function wecomHtml(content) {
+    return esc(content)
+      .replace(/&lt;font color=&quot;(\w+)&quot;&gt;([\s\S]*?)&lt;\/font&gt;/g, '<span class="$1">$2</span>')
+      .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+      .replace(/^### (.*)$/m, "<b>$1</b>");
+  }
+
+  function renderMeta() {
+    const live = meta.mode === "deepseek";
+    $("meta").innerHTML = `
+      <span>${esc(meta.station.name)} · ${esc(meta.station.capacity)} · ${esc(meta.station.location)}</span>
+      <span>数据时刻 <b>${esc(meta.as_of)}</b></span>
+      <span class="chip ${live ? "" : "offline"}"><span class="dot"></span>${live ? "DeepSeek：" + esc(meta.models.main) + " / " + esc(meta.models["alarm-triage"]) : "离线规则模型（未接 DeepSeek）"}</span>
+      ${TRACES ? '<span class="chip"><span class="dot"></span>在线预览：回放本地真实运行记录</span>' : ""}`;
+    $("alarms").innerHTML = meta.alarms.map((a) => `
+      <button class="alarm l${a.level}" type="button" data-id="${esc(a.alarm_id)}">
+        <span class="stripe"></span>
+        <span class="body">
+          <span class="lvl">${esc(a.level_name)}${a.occurrences > 1 ? ` · ${a.occurrences} 次` : ""}</span>
+          <span class="t">${esc(a.title)}</span>
+          <span class="v">${a.threshold != null ? `${esc(a.value)} ${esc(a.unit)} / 阈值 ${esc(a.threshold)} ${esc(a.unit)}` : "短时中断，已自动恢复"}</span>
+          <span class="d"><span>${esc(a.device_id)}</span><span>${esc(a.first_time.slice(11))}</span></span>
+        </span>
+      </button>`).join("");
+    document.querySelectorAll(".alarm").forEach((b) => b.addEventListener("click", () => select(b.dataset.id)));
+    select((meta.alarms.find((a) => a.alarm_id === "ALM-20261011-0012") || meta.alarms[0]).alarm_id);
+    if (live) { $("inject").disabled = true; $("inject").parentElement.title = "只在离线规则模型下可用"; }
+  }
+
+  function select(id) {
+    if (busy) return;
+    selected = id;
+    document.querySelectorAll(".alarm").forEach((b) => b.classList.toggle("active", b.dataset.id === id));
+  }
+
+  function reset() {
+    $("tl").innerHTML = "";
+    $("todos").innerHTML = "";
+    $("stats").innerHTML = "";
+    $("report").innerHTML = '<h2 class="sec"><span>处置报告</span></h2><p class="placeholder">智能体处理中…</p>';
+    $("wecom").innerHTML = '<p class="placeholder">等待草稿。</p>';
+    $("pushrow").hidden = true;
+    $("pushnote").textContent = "";
+  }
+
+  function add(html, agent, cls = "") {
+    const sub = agent && agent !== "main";
+    const div = document.createElement("div");
+    div.className = `ev ${sub ? "sub " + agent : ""} ${cls}`;
+    div.innerHTML = `<div class="who ${esc(agent || "")}">${esc(AGENT[agent] || agent || "")}</div><div style="min-width:0">${html}</div>`;
+    $("tl").appendChild(div);
+    const tl = $("tl");
+    if (tl.scrollHeight > tl.clientHeight) tl.scrollTop = tl.scrollHeight;
+    return div;
+  }
+
+  const pending = {};
+  function handle(e) {
+    switch (e.type) {
+      case "run_start":
+        add(`<span class="note">开始处理 ${esc(e.alarm_id)} · 模型：${e.mode === "offline" ? "离线规则模型" : esc(e.models.main) + "（主/诊断）、" + esc(e.models["alarm-triage"]) + "（分诊）"}${e.inject_hallucination ? " · 已开启防幻觉演示" : ""}</span>`, "");
+        break;
+      case "thought": add(`<div class="thought">${esc(e.text)}</div>`, e.agent); break;
+      case "todos":
+        $("todos").innerHTML = e.todos.map((t) => `<li class="${t.status}"><span>${t.status === "completed" ? "✓" : t.status === "in_progress" ? "▸" : "○"}</span><span>${esc(t.content)}</span></li>`).join("");
+        add(`<div class="call"><span class="fn">write_todos</span> <span class="args">更新处置计划</span></div>`, e.agent);
+        break;
+      case "delegate":
+        add(`<div class="deleg">委派给 <b>${esc(AGENT[e.subagent] || e.subagent)}</b> 子智能体<details class="res"><summary>任务描述</summary><pre>${esc(e.description)}</pre></details></div>`, e.agent);
+        break;
+      case "tool_call": {
+        const el = add(`<div class="call"><span class="fn">${esc(e.name)}</span> <span class="note">${esc(TOOL_CN[e.name] || "")}</span><div class="args">${esc(JSON.stringify(e.args))}</div><div class="slot"></div></div>`, e.agent);
+        pending[e.id] = el.querySelector(".slot");
+        break;
+      }
+      case "tool_result": {
+        const slot = pending[e.id];
+        const body = `<details class="res"><summary>${e.is_error ? '<span class="err">返回错误</span>' : "返回结果"}</summary><pre>${esc(e.result)}</pre></details>`;
+        if (slot) slot.innerHTML = body; else add(body, e.agent);
+        break;
+      }
+      case "subagent_result":
+        add(`<span class="note">子智能体结果已交回值班长</span>`, e.agent);
+        break;
+      case "guard": {
+        const txt = e.action === "pass" ? `事实校验通过：终答中 ${e.checked} 个数值都能在工具结果里找到依据`
+          : e.action === "rewrite" ? `事实校验拦截：${e.unsupported.join("、")} 在工具结果里没有依据，要求重写`
+          : `事实校验：重写后仍有无依据数值 ${e.unsupported.join("、")}，已删除对应句子`;
+        add(`<span class="guard ${e.action}">🛡 ${esc(txt)}</span>`, e.agent);
+        break;
+      }
+      case "guard_feedback": break;
+      case "answer":
+        if (e.agent === "main") {
+          $("report").innerHTML = `<h2 class="sec"><span>处置报告</span></h2>${md(e.text)}`;
+          add(`<div class="thought">给出最终处置报告（见右侧）</div>`, "main");
+        } else {
+          const j = jsonPart(e.text);
+          add(`<div class="answer-sub">${md(e.text)}${j ? `<details class="res"><summary>结构化结果（交给值班长）</summary><pre>${esc(j.trim())}</pre></details>` : ""}</div>`, e.agent);
+        }
+        break;
+      case "push_draft":
+        $("wecom").innerHTML = `<div class="bubble">${wecomHtml(e.content)}</div>`;
+        $("pushrow").hidden = false;
+        $("push").disabled = !!TRACES || !(meta && meta.wecom_configured);
+        $("pushnote").textContent = TRACES ? "在线预览不发送" : (meta.wecom_configured ? "将发送到配置的企业微信群机器人" : "未配置 WECOM_WEBHOOK_URL，仅预览");
+        break;
+      case "error": add(`<span class="err">出错：${esc(e.message)}</span>`, ""); break;
+      case "done":
+        $("stats").innerHTML = `<span>耗时 <b>${e.elapsed_s}s</b></span><span>模型调用 <b>${e.model_calls}</b></span><span>工具调用 <b>${e.tool_calls}</b></span>`;
+        add(`<span class="done">完成 · ${e.elapsed_s}s · 模型调用 ${e.model_calls} 次 · 工具调用 ${e.tool_calls} 次</span>`, "");
+        document.querySelectorAll("#todos li.in_progress").forEach((li) => { li.className = "completed"; li.firstElementChild.textContent = "✓"; });
+        busy = false; $("run").disabled = false;
+        break;
+    }
+  }
+
+  async function run() {
+    if (!selected || busy) return;
+    busy = true; $("run").disabled = true; reset();
+    const inject = $("inject").checked && !$("inject").disabled;
+    if (TRACES) {
+      const evs = TRACES[selected + (inject ? ":inject" : "")] || TRACES[selected] || [];
+      for (const e of evs) {
+        handle(e);
+        const slow = ["thought", "delegate", "guard", "answer"].includes(e.type);
+        await new Promise((r) => setTimeout(r, slow ? 520 : 200));
+      }
+      if (!evs.some((e) => e.type === "done")) { busy = false; $("run").disabled = false; }
+      return;
+    }
+    try {
+      const r = await fetch("/api/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ alarm_id: selected, inject_hallucination: inject }) });
+      if (!r.ok) throw new Error(await r.text());
+      runId = (await r.json()).run_id;
+      const es = new EventSource(`/api/runs/${runId}/events`);
+      es.onmessage = () => {};
+      ["run_start", "thought", "todos", "delegate", "tool_call", "tool_result", "subagent_result", "guard", "guard_feedback", "answer", "push_draft", "error", "done"]
+        .forEach((t) => es.addEventListener(t, (m) => { const e = JSON.parse(m.data); handle(e); if (t === "done") es.close(); }));
+      es.onerror = () => { if (!busy) es.close(); };
+    } catch (err) {
+      add(`<span class="err">启动失败：${esc(err.message)}</span>`, "");
+      busy = false; $("run").disabled = false;
+    }
+  }
+
+  async function push() {
+    if (!runId) return;
+    $("push").disabled = true;
+    try {
+      const r = await fetch(`/api/runs/${runId}/push`, { method: "POST" });
+      const j = await r.json();
+      $("pushnote").textContent = r.ok && j.sent ? "已发送到企业微信" : `发送失败：${j.detail || JSON.stringify(j.wecom)}`;
+    } catch (err) { $("pushnote").textContent = `发送失败：${err.message}`; }
+  }
+
+  $("run").addEventListener("click", run);
+  $("push").addEventListener("click", push);
+
+  if (META) { meta = META; renderMeta(); }
+  else fetch("/api/meta").then((r) => r.json()).then((m) => { meta = m; renderMeta(); })
+    .catch(() => { $("alarms").innerHTML = '<p class="err">连不上后端，请先运行 uvicorn app.server:app</p>'; });
+})();
+</script>

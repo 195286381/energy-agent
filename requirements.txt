@@ -1,0 +1,9 @@
+deepagents==0.7.23
+langchain==1.4.4
+langgraph==1.2.14
+langchain-openai==1.7.0
+langchain-mcp-adapters==0.3.2
+mcp==1.30.0
+fastapi==0.143.0
+uvicorn[standard]
+pytest
