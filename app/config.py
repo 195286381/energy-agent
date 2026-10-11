@@ -18,7 +18,10 @@ def _load_dotenv() -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         k, v = line.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+        v = v.strip()
+        if v[:1] not in ('"', "'"):
+            v = v.split(" #", 1)[0].strip()  # 未加引号的值去掉行尾注释（.env.example 里就有）
+        os.environ.setdefault(k.strip(), v.strip('"').strip("'"))
 
 
 _load_dotenv()
